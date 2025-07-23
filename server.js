@@ -1,5 +1,6 @@
 // Step 1: Install Firebase Admin SDK
 // npm install firebase-admin
+require('dotenv').config();
 
 const express = require("express");
 const mysql = require("mysql2");
@@ -18,12 +19,13 @@ app.use(express.static(__dirname + '/public'));
 
 
 // ✅ Firebase Admin SDK Setup
-const serviceAccount = require("./serviceAccountKey.json"); // Download from Firebase Console
+const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://school-managemnt-c30da-default-rtdb.firebaseio.com/" // Replace with your URL
+  databaseURL: process.env.FIREBASE_DB_URL
 });
+
 
 const firestore = admin.firestore();
 const realtimeDb = admin.database();
