@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+    <title>Student Attendance System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 15px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); overflow: hidden; }
+        .header { background: linear-gradient(45deg, #4CAF50, #45a049); color: white; padding: 30px; text-align: center; }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .nav { display: flex; justify-content: center; gap: 20px; margin-top: 20px; }
+        .nav button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 12px 24px; border-radius: 25px; cursor: pointer; transition: all 0.3s; font-size: 16px; }
+        .nav button:hover, .nav button.active { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
+        .content { padding: 40px; }
+        .section { display: none; animation: fadeIn 0.5s; }
+        .section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .form-group { margin-bottom: 25px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #333; }
+        .form-group input, .form-group select { width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 16px; transition: border-color 0.3s; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4CAF50; }
+        .btn { background: linear-gradient(45deg, #4CAF50, #45a049); color: white; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-size: 16px; transition: all 0.3s; margin-right: 10px; margin-bottom: 10px; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4); }
+        .btn-danger { background: linear-gradient(45deg, #f44336, #d32f2f); }
+        .btn-danger:hover { box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); }
+        .student-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+        .student-card { background: #f8f9fa; border-radius: 12px; padding: 20px; border-left: 4px solid #4CAF50; transition: transform 0.3s; }
+        .student-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .student-info h3 { color: #333; margin-bottom: 10px; }
+        .student-info p { color: #666; margin: 5px 0; }
+        .qr-container { text-align: center; margin: 20px 0; }
+        .qr-code { background: white; padding: 15px; border-radius: 10px; display: inline-block; margin: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .scanner-container { text-align: center; margin: 20px 0; }
+        .scanner-video { max-width: 100%; border-radius: 10px; margin: 20px 0; }
+        .attendance-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .attendance-table th { background: #4CAF50; color: white; padding: 15px; text-align: left; }
+        .attendance-table td { padding: 12px 15px; border-bottom: 1px solid #eee; }
+        .attendance-table tr:hover { background: #f5f5f5; }
+        .status-present { color: #4CAF50; font-weight: bold; }
+        .status-absent { color: #f44336; font-weight: bold; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
+        .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 12px; text-align: center; }
+        .stat-card h3 { font-size: 2.5em; margin-bottom: 10px; }
+        .filters { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filters input, .filters select { padding: 10px; border: 2px solid #e1e5e9; border-radius: 6px; font-size: 14px; }
+        .success-message { background: #d4edda; color: #155724; padding: 12px; border-radius: 6px; margin: 10px 0; border: 1px solid #c3e6cb; }
+        .error-message { background: #f8d7da; color: #721c24; padding: 12px; border-radius: 6px; margin: 10px 0; border: 1px solid #f5c6cb; }
+        .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        @media (max-width: 768px) { .nav { flex-wrap: wrap; } .two-column { grid-template-columns: 1fr; } .filters { flex-direction: column; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎓 Student Attendance System</h1>
+            <p>Manage students and track attendance with QR codes</p>
+            <div class="nav">
+                <button class="nav-btn active" data-section="dashboard">📊 Dashboard</button>
+                <button class="nav-btn" data-section="students">👥 Students</button>
+                <button class="nav-btn" data-section="scanner">📱 QR Scanner</button>
+                <button class="nav-btn" data-section="reports">📋 Reports</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Dashboard Section -->
+            <div class="section active" id="dashboard">
+                <h2>📊 Dashboard</h2>
+                <div class="stats-grid">
+                    <div class="stat-card"><h3 id="totalStudents">0</h3><p>Total Students</p></div>
+                    <div class="stat-card"><h3 id="todayAttendance">0</h3><p>Today's Attendance</p></div>
+                    <div class="stat-card"><h3 id="attendanceRate">0%</h3><p>Attendance Rate</p></div>
+                </div>
+                <h3>Recent Attendance</h3>
+                <table class="attendance-table" id="recentAttendanceTable">
+                    <thead><tr><th>Student Name</th><th>Student ID</th><th>Class</th><th>Time</th><th>Status</th></tr></thead>
+                    <tbody id="recentAttendanceBody"><tr><td colspan="5" style="text-align: center; color: #666;">No attendance records yet</td></tr></tbody>
+                </table>
+            </div>
+
+            <!-- Students Section -->
+            <div class="section" id="students">
+                <div class="two-column">
+                    <div>
+                        <h2>👥 Student Management</h2>
+                        <form id="studentForm">
+                            <div class="form-group"><label for="studentId">Student ID</label><input type="text" id="studentId" required></div>
+                            <div class="form-group"><label for="studentName">Student Name</label><input type="text" id="studentName" required></div>
+                            <div class="form-group"><label for="studentClass">Class</label><input type="text" id="studentClass" required></div>
+                            <div class="form-group"><label for="studentEmail">Email</label><input type="email" id="studentEmail"></div>
+                            <button type="submit" class="btn">➕ Add Student</button>
+                            <button type="button" class="btn" id="clearForm">🗑️ Clear</button>
+                        </form>
+                        <div id="studentMessage"></div>
+                    </div>
+                    <div>
+                        <h3>📱 QR Code Preview</h3>
+                        <div class="qr-container">
+                            <div id="qrCodePreview"></div>
+                            <p id="qrCodeText">Select a student to generate QR code</p>
+                            <button class="btn" id="downloadQR" style="display: none;">💾 Download QR Code</button>
+                        </div>
+                    </div>
+                </div>
+                <h3>Student List</h3>
+                <div class="student-grid" id="studentGrid">
+                    <p style="text-align: center; color: #666; grid-column: 1 / -1;">No students added yet</p>
+                </div>
+            </div>
+
+            <!-- Scanner Section -->
+            <div class="section" id="scanner">
+                <h2>📱 QR Code Scanner</h2>
+                <div class="scanner-container">
+                    <button class="btn" id="startScan">📹 Start Camera</button>
+                    <button class="btn btn-danger" id="stopScan" style="display: none;">⏹️ Stop Camera</button>
+                    <video id="scannerVideo" class="scanner-video" style="display: none;" width="400" height="300"></video>
+                    <canvas id="scannerCanvas" style="display: none;"></canvas>
+                    <div id="scanResult"></div>
+                </div>
+                <h3>Today's Scanned Attendance</h3>
+                <div class="filters">
+                    <input type="date" id="filterDate">
+                    <select id="filterClass"><option value="">All Classes</option></select>
+                </div>
+                <table class="attendance-table" id="scannedAttendanceTable">
+                    <thead><tr><th>Student Name</th><th>Student ID</th><th>Class</th><th>Scan Time</th><th>Status</th></tr></thead>
+                    <tbody id="scannedAttendanceBody"></tbody>
+                </table>
+            </div>
+
+            <!-- Reports Section -->
+            <div class="section" id="reports">
+                <h2>📋 Attendance Reports</h2>
+                <div class="filters">
+                    <input type="date" id="reportStartDate">
+                    <input type="date" id="reportEndDate">
+                    <select id="reportClass"><option value="">All Classes</option></select>
+                    <button class="btn" id="generateReport">📊 Generate Report</button>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card"><h3 id="reportTotalClasses">0</h3><p>Total Classes</p></div>
+                    <div class="stat-card"><h3 id="reportAvgAttendance">0%</h3><p>Average Attendance</p></div>
+                </div>
+                <table class="attendance-table" id="reportTable">
+                    <thead><tr><th>Date</th><th>Student Name</th><th>Student ID</th><th>Class</th><th>Time</th><th>Status</th></tr></thead>
+                    <tbody id="reportTableBody"><tr><td colspan="6" style="text-align: center; color: #666;">Generate a report to see data</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+<script>
+    
+let students = [];
+let attendanceRecords = [];
+let currentEditingStudent = null;
+let scanningInterval = null;
+let stream = null;
+
+// ✅ Load from backend
+async function loadStudents() {
+    try {
+        const res = await fetch('http://localhost:5000/students');
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        students = await res.json();
+    } catch (err) {
+        console.error("❌ Failed to load students:", err);
+        students = [];
+    }
+    renderStudents();
+    updateDashboard();
+    updateClassFilters();
+}
+
+
+async function loadAttendance() {
+    try {
+        const res = await fetch('http://localhost:5000/attendance');
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        attendanceRecords = await res.json();
+    } catch (err) {
+        console.error("❌ Failed to load attendance:", err);
+        attendanceRecords = []; // fallback to empty if error
+    }
+
+    updateDashboard();
+    updateScannedAttendance();
+}
+
+
+document.addEventListener('DOMContentLoaded', function() {
+    setupEventListeners();
+    loadStudents();
+    loadAttendance();
+    document.getElementById('filterDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('reportStartDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('reportEndDate').value = new Date().toISOString().split('T')[0];
+});
+
+function setupEventListeners() {
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.addEventListener('click', function() { switchSection(this.dataset.section); });
+    });
+    document.getElementById('studentForm').addEventListener('submit', handleStudentSubmit);
+    document.getElementById('clearForm').addEventListener('click', clearStudentForm);
+    document.getElementById('startScan').addEventListener('click', startScanning);
+    document.getElementById('stopScan').addEventListener('click', stopScanning);
+    document.getElementById('filterDate').addEventListener('change', updateScannedAttendance);
+    document.getElementById('filterClass').addEventListener('change', updateScannedAttendance);
+    document.getElementById('generateReport').addEventListener('click', generateReport);
+    document.getElementById('downloadQR').addEventListener('click', downloadQRCode);
+    document.getElementById('studentId').addEventListener('input', generatePreviewQR);
+    document.getElementById('studentName').addEventListener('input', generatePreviewQR);
+}
+
+function switchSection(sectionName) {
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`[data-section="${sectionName}"]`).classList.add('active');
+    document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
+    document.getElementById(sectionName).classList.add('active');
+    if (sectionName === 'dashboard') updateDashboard();
+    else if (sectionName === 'scanner') updateScannedAttendance();
+}
+
+async function handleStudentSubmit(e) {
+    e.preventDefault();
+    const studentData = {
+        id: document.getElementById('studentId').value.trim(),
+        name: document.getElementById('studentName').value.trim(),
+        class: document.getElementById('studentClass').value.trim(),
+        email: document.getElementById('studentEmail').value.trim(),
+        dateAdded: currentEditingStudent ? currentEditingStudent.dateAdded : new Date().toISOString()
+    };
+    if (currentEditingStudent) {
+        await fetch(`http://localhost:5000/students/${currentEditingStudent.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(studentData)
+        });
+        showMessage('Student updated successfully!', 'success');
+        currentEditingStudent = null;
+    } else {
+        await fetch('http://localhost:5000/students', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(studentData)
+        });
+        showMessage('Student added successfully!', 'success');
+    }
+    clearStudentForm();
+    loadStudents();
+}
+
+function clearStudentForm() {
+    document.getElementById('studentForm').reset();
+    currentEditingStudent = null;
+    document.querySelector('#studentForm button[type="submit"]').textContent = '➕ Add Student';
+    document.getElementById('qrCodePreview').innerHTML = '';
+    document.getElementById('qrCodeText').textContent = 'Select a student to generate QR code';
+    document.getElementById('downloadQR').style.display = 'none';
+}
+
+async function deleteStudent(studentId) {
+    if (confirm('Are you sure you want to delete this student?')) {
+        await fetch(`http://localhost:5000/students/${studentId}`, { method: 'DELETE' });
+        showMessage('Student deleted successfully!', 'success');
+        loadStudents();
+        loadAttendance();
+    }
+}
+
+function editStudent(studentId) {
+    const student = students.find(s => s.id === studentId);
+    if (student) {
+        currentEditingStudent = student;
+        document.getElementById('studentId').value = student.id;
+        document.getElementById('studentName').value = student.name;
+        document.getElementById('studentClass').value = student.class;
+        document.getElementById('studentEmail').value = student.email;
+        document.querySelector('#studentForm button[type="submit"]').textContent = '✏️ Update Student';
+        generatePreviewQR();
+        switchSection('students');
+    }
+}
+
+function generateQRCode(student) {
+    const qrContainer = document.createElement('div');
+    qrContainer.className = 'qr-code';
+    const canvas = document.createElement('canvas');
+    qrContainer.appendChild(canvas);
+    const qrData = JSON.stringify({ studentId: student.id, studentName: student.name, timestamp: new Date().toISOString() });
+    QRCode.toCanvas(canvas, qrData, { width: 200, margin: 2 });
+    return qrContainer;
+}
+function generatePreviewQR() {
+    const studentId = document.getElementById('studentId').value.trim();
+    const studentName = document.getElementById('studentName').value.trim();
+    if (studentId && studentName) {
+        const previewContainer = document.getElementById('qrCodePreview');
+        previewContainer.innerHTML = '';
+        const canvas = document.createElement('canvas');
+        previewContainer.appendChild(canvas);
+        
+        const qrData = JSON.stringify({ 
+            studentId: studentId, 
+            studentName: studentName, 
+            timestamp: new Date().toISOString() 
+        });
+        
+        new QRious({
+            element: canvas,
+            value: qrData,
+            size: 200
+        });
+        
+        document.getElementById('qrCodeText').textContent = `QR Code for ${studentName} (${studentId})`;
+        document.getElementById('downloadQR').style.display = 'inline-block';
+    }
+}
+
+function downloadQRCode() {
+    const canvas = document.querySelector('#qrCodePreview canvas');
+    if (canvas) {
+        const studentId = document.getElementById('studentId').value.trim();
+        const studentName = document.getElementById('studentName').value.trim();
+        const link = document.createElement('a');
+        link.download = `QR_${studentId}_${studentName.replace(/\s+/g, '_')}.png`;
+        link.href = canvas.toDataURL();
+        link.click();
+    }
+}
+
+function renderStudents() {
+    const grid = document.getElementById('studentGrid');
+    if (students.length === 0) {
+        grid.innerHTML = '<p style="text-align: center; color: #666; grid-column: 1 / -1;">No students added yet</p>';
+        return;
+    }
+    grid.innerHTML = '';
+
+    students.forEach(student => {
+        const card = document.createElement('div');
+        card.className = 'student-card';
+        card.innerHTML = `
+            <div class="student-info">
+                <h3>${student.name}</h3>
+                <p><strong>ID:</strong> ${student.id}</p>
+                <p><strong>Class:</strong> ${student.class}</p>
+                <p><strong>Email:</strong> ${student.email || 'N/A'}</p>
+            </div>
+            <div class="qr-container"><div class="qr-code-container-${student.id}"></div></div>
+            <div style="margin-top: 15px;">
+                <button class="btn" onclick="editStudent('${student.id}')">✏️ Edit</button>
+                <button class="btn btn-danger" onclick="deleteStudent('${student.id}')">🗑️ Delete</button>
+                <button class="btn" onclick="downloadStudentQR('${student.id}')">💾 Download QR</button>
+            </div>`;
+
+        grid.appendChild(card);
+
+        // ✅ Prevent "QRCode is not defined" error
+        if (typeof QRCode !== "undefined") {
+            const qrContainer = card.querySelector(`.qr-code-container-${student.id}`);
+            const canvas = document.createElement('canvas');
+            qrContainer.appendChild(canvas);
+            const qrData = JSON.stringify({
+                studentId: student.id,
+                studentName: student.name,
+                timestamp: new Date().toISOString()
+            });
+            new QRious({
+    element: canvas,
+    value: qrData,
+    size: 150
+});
+        } else {
+            console.error("QRCode library not loaded yet.");
+        }
+    });
+}
+
+
+function downloadStudentQR(studentId) {
+    const student = students.find(s => s.id === studentId);
+    if (student) {
+        const canvas = document.querySelector(`.qr-code-container-${studentId} canvas`);
+        if (canvas) {
+            const link = document.createElement('a');
+            link.download = `QR_${student.id}_${student.name.replace(/\s+/g, '_')}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+    }
+}
+
+function startScanning() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function(mediaStream) {
+            stream = mediaStream;
+            const video = document.getElementById('scannerVideo');
+            video.srcObject = mediaStream;
+            video.style.display = 'block';
+            video.play();
+            document.getElementById('startScan').style.display = 'none';
+            document.getElementById('stopScan').style.display = 'inline-block';
+            scanningInterval = setInterval(scanQRCode, 500);
+        }).catch(error => showScanMessage('Camera error: ' + error.message, 'error'));
+    } else showScanMessage('Camera not supported', 'error');
+}
+
+function stopScanning() {
+    if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
+    if (scanningInterval) { clearInterval(scanningInterval); scanningInterval = null; }
+    document.getElementById('scannerVideo').style.display = 'none';
+    document.getElementById('startScan').style.display = 'inline-block';
+    document.getElementById('stopScan').style.display = 'none';
+}
+
+function scanQRCode() {
+    const video = document.getElementById('scannerVideo');
+    const canvas = document.getElementById('scannerCanvas');
+    const context = canvas.getContext('2d');
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.height = video.videoHeight;
+        canvas.width = video.videoWidth;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code) {
+            try {
+                const qrData = JSON.parse(code.data);
+                if (qrData.studentId) processAttendance(qrData);
+            } catch { showScanMessage('Invalid QR', 'error'); }
+        }
+    }
+}
+
+async function processAttendance(qrData) {
+    const student = students.find(s => s.id === qrData.studentId);
+    if (!student) { showScanMessage('Student not found', 'error'); return; }
+    const attendanceRecord = {
+        studentId: qrData.studentId, studentName: student.name, studentClass: student.class,
+        date: new Date().toISOString(), status: 'present'
+    };
+    await fetch('http://localhost:5000/attendance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(attendanceRecord)
+    });
+    loadAttendance();
+    showScanMessage(`✅ ${student.name} marked present!`, 'success');
+}
+
+function showScanMessage(message, type) {
+    const resultDiv = document.getElementById('scanResult');
+    resultDiv.className = type === 'success' ? 'success-message' : 'error-message';
+    resultDiv.textContent = message;
+    setTimeout(() => { resultDiv.textContent = ''; resultDiv.className = ''; }, 3000);
+}
+
+function updateScannedAttendance() {
+    const filterDate = document.getElementById('filterDate').value;
+    const filterClass = document.getElementById('filterClass').value;
+    const tbody = document.getElementById('scannedAttendanceBody');
+    let filtered = attendanceRecords;
+    if (filterDate) filtered = filtered.filter(r => new Date(r.date).toDateString() === new Date(filterDate).toDateString());
+    if (filterClass) filtered = filtered.filter(r => r.studentClass === filterClass);
+    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No records</td></tr>'; return;
+    }
+    tbody.innerHTML = '';
+    filtered.forEach(record => {
+        const date = new Date(record.date);
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${record.studentName}</td><td>${record.studentId}</td><td>${record.studentClass}</td>
+                         <td>${date.toLocaleTimeString()}</td><td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>`;
+        tbody.appendChild(row);
+    });
+}
+
+function updateDashboard() {
+    const totalStudents = students.length;
+    const today = new Date().toDateString();
+    const todayAttendance = attendanceRecords.filter(r => new Date(r.date).toDateString() === today).length;
+    const attendanceRate = totalStudents > 0 ? Math.round((todayAttendance / totalStudents) * 100) : 0;
+    document.getElementById('totalStudents').textContent = totalStudents;
+    document.getElementById('todayAttendance').textContent = todayAttendance;
+    document.getElementById('attendanceRate').textContent = attendanceRate + '%';
+    const recent = attendanceRecords.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10);
+    const tbody = document.getElementById('recentAttendanceBody');
+    if (recent.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No attendance records yet</td></tr>'; return;
+    }
+    tbody.innerHTML = '';
+    recent.forEach(record => {
+        const date = new Date(record.date);
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${record.studentName}</td><td>${record.studentId}</td><td>${record.studentClass}</td>
+                         <td>${date.toLocaleString()}</td><td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>`;
+        tbody.appendChild(row);
+    });
+}
+
+function updateClassFilters() {
+    const classes = [...new Set(students.map(s => s.class))].sort();
+    const filterClass = document.getElementById('filterClass');
+    const reportClass = document.getElementById('reportClass');
+    filterClass.innerHTML = '<option value="">All Classes</option>';
+    reportClass.innerHTML = '<option value="">All Classes</option>';
+    classes.forEach(cls => {
+        const opt1 = document.createElement('option'); opt1.value = cls; opt1.textContent = cls; filterClass.appendChild(opt1);
+        const opt2 = document.createElement('option'); opt2.value = cls; opt2.textContent = cls; reportClass.appendChild(opt2);
+    });
+}
+
+function generateReport() {
+    const startDate = document.getElementById('reportStartDate').value;
+    const endDate = document.getElementById('reportEndDate').value;
+    const reportClass = document.getElementById('reportClass').value;
+    if (!startDate || !endDate) { showMessage('Please select start and end dates', 'error'); return; }
+    let filtered = attendanceRecords.filter(r => {
+        const d = new Date(r.date); const s = new Date(startDate); const e = new Date(endDate); e.setHours(23, 59, 59, 999);
+        return d >= s && d <= e;
+    });
+    if (reportClass) filtered = filtered.filter(r => r.studentClass === reportClass);
+    const totalClasses = new Set(filtered.map(r => new Date(r.date).toDateString())).size;
+    const avgAttendance = students.length > 0 ? Math.round((filtered.length / (students.length * Math.max(totalClasses, 1))) * 100) : 0;
+    document.getElementById('reportTotalClasses').textContent = totalClasses;
+    document.getElementById('reportAvgAttendance').textContent = avgAttendance + '%';
+    const tbody = document.getElementById('reportTableBody');
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">No attendance records for selected period</td></tr>'; return;
+    }
+    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+    tbody.innerHTML = '';
+    filtered.forEach(record => {
+        const date = new Date(record.date);
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${date.toLocaleDateString()}</td><td>${record.studentName}</td><td>${record.studentId}</td>
+                         <td>${record.studentClass}</td><td>${date.toLocaleTimeString()}</td>
+                         <td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>`;
+        tbody.appendChild(row);
+    });
+}
+
+function showMessage(message, type) {
+    const messageDiv = document.getElementById('studentMessage');
+    messageDiv.className = type === 'success' ? 'success-message' : 'error-message';
+    messageDiv.textContent = message;
+    setTimeout(() => { messageDiv.textContent = ''; messageDiv.className = ''; }, 3000);
+}
+</script>
+
+</body>
+</html>
