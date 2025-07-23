@@ -8,7 +8,8 @@ const bodyParser = require("body-parser");
 const admin = require("firebase-admin");
 
 const app = express();
-const port = 5000;
+const port = process.env.PORT || 5000;
+
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -26,12 +27,11 @@ const realtimeDb = admin.database();
 
 // ✅ MySQL Connection (Keep existing)
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "",
-  database: "school"
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASS || "",
+  database: process.env.DB_NAME || "school",
 });
-
 db.connect(err => {
   if (err) {
     console.error("❌ Database connection failed:", err);
