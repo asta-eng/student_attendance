@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
     <title>Student Attendance System</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -48,7 +50,6 @@
         .success-message { background: #d4edda; color: #155724; padding: 12px; border-radius: 6px; margin: 10px 0; border: 1px solid #c3e6cb; }
         .error-message { background: #f8d7da; color: #721c24; padding: 12px; border-radius: 6px; margin: 10px 0; border: 1px solid #f5c6cb; }
         .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
-        .loading-message { text-align: center; color: #666; padding: 20px; }
         @media (max-width: 768px) { .nav { flex-wrap: wrap; } .two-column { grid-template-columns: 1fr; } .filters { flex-direction: column; } }
     </style>
 </head>
@@ -106,7 +107,6 @@
                     </div>
                 </div>
                 <h3>Student List</h3>
-                <div id="libraryStatus" class="loading-message">Loading QR Code library...</div>
                 <div class="student-grid" id="studentGrid">
                     <p style="text-align: center; color: #666; grid-column: 1 / -1;">No students added yet</p>
                 </div>
@@ -154,49 +154,53 @@
         </div>
     </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
-
 <script>
-let students = JSON.parse(localStorage.getItem('students') || '[]');
-let attendanceRecords = JSON.parse(localStorage.getItem('attendanceRecords') || '[]');
+    
+let students = [];
+let attendanceRecords = [];
 let currentEditingStudent = null;
 let scanningInterval = null;
 let stream = null;
-let qrCodeLibraryLoaded = false;
 
-// Initialize the application
-function initializeApp() {
-    // Check if QR library is available
-    if (typeof qrcode !== 'undefined') {
-        qrCodeLibraryLoaded = true;
-        document.getElementById('libraryStatus').style.display = 'none';
-        console.log('QR Code library loaded successfully');
-    } else {
-        console.log('Waiting for QR Code library...');
-        setTimeout(initializeApp, 100);
-        return;
+// ✅ Load from backend
+async function loadStudents() {
+    try {
+        const res = await fetch('http://localhost:5000/students');
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        students = await res.json();
+    } catch (err) {
+        console.error("❌ Failed to load students:", err);
+        students = [];
     }
-    
-    setupEventListeners();
     renderStudents();
     updateDashboard();
     updateClassFilters();
-    
-    // Set default dates
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('filterDate').value = today;
-    document.getElementById('reportStartDate').value = today;
-    document.getElementById('reportEndDate').value = today;
-    
+}
+
+
+async function loadAttendance() {
+    try {
+        const res = await fetch('http://localhost:5000/attendance');
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        attendanceRecords = await res.json();
+    } catch (err) {
+        console.error("❌ Failed to load attendance:", err);
+        attendanceRecords = []; // fallback to empty if error
+    }
+
+    updateDashboard();
     updateScannedAttendance();
 }
 
-// Save data to localStorage
-function saveData() {
-    localStorage.setItem('students', JSON.stringify(students));
-    localStorage.setItem('attendanceRecords', JSON.stringify(attendanceRecords));
-}
+
+document.addEventListener('DOMContentLoaded', function() {
+    setupEventListeners();
+    loadStudents();
+    loadAttendance();
+    document.getElementById('filterDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('reportStartDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('reportEndDate').value = new Date().toISOString().split('T')[0];
+});
 
 function setupEventListeners() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -219,14 +223,13 @@ function switchSection(sectionName) {
     document.querySelector(`[data-section="${sectionName}"]`).classList.add('active');
     document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
     document.getElementById(sectionName).classList.add('active');
-    
     if (sectionName === 'dashboard') updateDashboard();
     else if (sectionName === 'scanner') updateScannedAttendance();
 }
 
-function handleStudentSubmit(e) {
+async function handleStudentSubmit(e) {
     e.preventDefault();
-    
+
     const studentData = {
         id: document.getElementById('studentId').value.trim(),
         name: document.getElementById('studentName').value.trim(),
@@ -235,31 +238,36 @@ function handleStudentSubmit(e) {
         dateAdded: currentEditingStudent ? currentEditingStudent.dateAdded : new Date().toISOString()
     };
 
-    // Check for duplicate student ID (except when editing the same student)
-    const existingStudent = students.find(s => s.id === studentData.id);
-    if (existingStudent && (!currentEditingStudent || currentEditingStudent.id !== studentData.id)) {
-        showMessage('Student ID already exists!', 'error');
-        return;
-    }
+    try {
+        if (currentEditingStudent) {
+            // Update existing student
+            await fetch(`http://localhost:5000/students/${currentEditingStudent.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(studentData)
+            });
+            showMessage('Student updated successfully!', 'success');
+            currentEditingStudent = null;
+        } else {
+            // Add new student
+            await fetch('http://localhost:5000/students', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(studentData)
+            });
+            showMessage('Student added successfully!', 'success');
+        }
 
-    if (currentEditingStudent) {
-        // Update existing student
-        const index = students.findIndex(s => s.id === currentEditingStudent.id);
-        students[index] = studentData;
-        showMessage('Student updated successfully!', 'success');
-        currentEditingStudent = null;
-    } else {
-        // Add new student
-        students.push(studentData);
-        showMessage('Student added successfully!', 'success');
-    }
+        // Refresh list and clear form
+        await loadStudents();   // <--- Refresh the student grid immediately
+        clearStudentForm();     // Reset the form
 
-    saveData();
-    clearStudentForm();
-    renderStudents();
-    updateDashboard();
-    updateClassFilters();
+    } catch (error) {
+        console.error('❌ Error saving student:', error);
+        showMessage('Error saving student. Please try again.', 'error');
+    }
 }
+
 
 function clearStudentForm() {
     document.getElementById('studentForm').reset();
@@ -270,18 +278,14 @@ function clearStudentForm() {
     document.getElementById('downloadQR').style.display = 'none';
 }
 
-function deleteStudent(studentId) {
+async function deleteStudent(studentId) {
     if (confirm('Are you sure you want to delete this student?')) {
-        students = students.filter(s => s.id !== studentId);
-        attendanceRecords = attendanceRecords.filter(r => r.studentId !== studentId);
-        saveData();
-        renderStudents();
-        updateDashboard();
-        updateClassFilters();
+        await fetch(`http://localhost:5000/students/${studentId}`, { method: 'DELETE' });
         showMessage('Student deleted successfully!', 'success');
+        loadStudents();
+        loadAttendance();
     }
 }
-
 function editStudent(studentId) {
     const student = students.find(s => s.id === studentId);
     if (student) {
@@ -289,73 +293,57 @@ function editStudent(studentId) {
         document.getElementById('studentId').value = student.id;
         document.getElementById('studentName').value = student.name;
         document.getElementById('studentClass').value = student.class;
-        document.getElementById('studentEmail').value = student.email;
+        document.getElementById('studentEmail').value = student.email || '';
         document.querySelector('#studentForm button[type="submit"]').textContent = '✏️ Update Student';
-        generatePreviewQR();
-        switchSection('students');
+        generatePreviewQR(); // Update preview QR
+        switchSection('students'); // Go to the form section
+    } else {
+        showMessage('Student not found', 'error');
     }
 }
 
-function generateQRCodeCanvas(data, size = 150) {
+
+function generateQRCode(student) {
+    const qrContainer = document.createElement('div');
+    qrContainer.className = 'qr-code';
     const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    
-    try {
-        const qr = qrcode(0, 'M');
-        qr.addData(data);
-        qr.make();
-        
-        const moduleCount = qr.getModuleCount();
-        const cellSize = size / moduleCount;
-        
-        // Clear canvas
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, size, size);
-        
-        // Draw QR code
-        ctx.fillStyle = '#000000';
-        for (let row = 0; row < moduleCount; row++) {
-            for (let col = 0; col < moduleCount; col++) {
-                if (qr.isDark(row, col)) {
-                    ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
-                }
-            }
-        }
-        
-        return canvas;
-    } catch (error) {
-        console.error('Error generating QR code:', error);
-        return null;
-    }
+    qrContainer.appendChild(canvas);
+    const qrData = JSON.stringify({
+        studentId: student.id,
+        studentName: student.name,
+        timestamp: new Date().toISOString()
+    });
+    new QRious({
+        element: canvas,
+        value: qrData,
+        size: 200
+    });
+    return qrContainer;
 }
 
 function generatePreviewQR() {
-    if (!qrCodeLibraryLoaded) {
-        console.log('QR Code library not loaded yet');
-        return;
-    }
-
     const studentId = document.getElementById('studentId').value.trim();
     const studentName = document.getElementById('studentName').value.trim();
-    
     if (studentId && studentName) {
         const previewContainer = document.getElementById('qrCodePreview');
         previewContainer.innerHTML = '';
+        const canvas = document.createElement('canvas');
+        previewContainer.appendChild(canvas);
         
-        const qrData = JSON.stringify({
-            studentId: studentId,
-            studentName: studentName,
-            timestamp: new Date().toISOString()
+        const qrData = JSON.stringify({ 
+            studentId: studentId, 
+            studentName: studentName, 
+            timestamp: new Date().toISOString() 
         });
         
-        const canvas = generateQRCodeCanvas(qrData, 200);
-        if (canvas) {
-            previewContainer.appendChild(canvas);
-            document.getElementById('qrCodeText').textContent = `QR Code for ${studentName} (${studentId})`;
-            document.getElementById('downloadQR').style.display = 'inline-block';
-        }
+        new QRious({
+            element: canvas,
+            value: qrData,
+            size: 200
+        });
+        
+        document.getElementById('qrCodeText').textContent = `QR Code for ${studentName} (${studentId})`;
+        document.getElementById('downloadQR').style.display = 'inline-block';
     }
 }
 
@@ -373,12 +361,10 @@ function downloadQRCode() {
 
 function renderStudents() {
     const grid = document.getElementById('studentGrid');
-    
     if (students.length === 0) {
         grid.innerHTML = '<p style="text-align: center; color: #666; grid-column: 1 / -1;">No students added yet</p>';
         return;
     }
-
     grid.innerHTML = '';
 
     students.forEach(student => {
@@ -392,32 +378,34 @@ function renderStudents() {
                 <p><strong>Email:</strong> ${student.email || 'N/A'}</p>
             </div>
             <div class="qr-container">
-                <div class="qr-code-container-${student.id}"></div>
+                <div class="qr-code-container qr-code-container-${student.id}"></div>
             </div>
             <div style="margin-top: 15px;">
                 <button class="btn" onclick="editStudent('${student.id}')">✏️ Edit</button>
                 <button class="btn btn-danger" onclick="deleteStudent('${student.id}')">🗑️ Delete</button>
                 <button class="btn" onclick="downloadStudentQR('${student.id}')">💾 Download QR</button>
-            </div>`;
+            </div>
+        `;
 
         grid.appendChild(card);
 
-        // Generate QR code for student card
-        if (qrCodeLibraryLoaded) {
-            const qrContainer = card.querySelector(`.qr-code-container-${student.id}`);
-            const qrData = JSON.stringify({
-                studentId: student.id,
-                studentName: student.name,
-                timestamp: new Date().toISOString()
-            });
-            
-            const canvas = generateQRCodeCanvas(qrData, 150);
-            if (canvas) {
-                qrContainer.appendChild(canvas);
-            }
-        }
+        // Generate QR for each student
+        const qrContainer = card.querySelector(`.qr-code-container-${student.id}`);
+        const canvas = document.createElement('canvas');
+        qrContainer.appendChild(canvas);
+        const qrData = JSON.stringify({
+            studentId: student.id,
+            studentName: student.name,
+            timestamp: new Date().toISOString()
+        });
+        new QRious({
+            element: canvas,
+            value: qrData,
+            size: 150
+        });
     });
 }
+
 
 function downloadStudentQR(studentId) {
     const student = students.find(s => s.id === studentId);
@@ -426,110 +414,78 @@ function downloadStudentQR(studentId) {
         if (canvas) {
             const link = document.createElement('a');
             link.download = `QR_${student.id}_${student.name.replace(/\s+/g, '_')}.png`;
-            link.href = canvas.toDataURL();
+            link.href = canvas.toDataURL("image/png");
+            document.body.appendChild(link);
             link.click();
+            document.body.removeChild(link);
+        } else {
+            showMessage('QR code not found for this student.', 'error');
         }
+    } else {
+        showMessage('Student not found.', 'error');
     }
 }
 
 function startScanning() {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment' } 
-        }).then(function(mediaStream) {
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(function(mediaStream) {
             stream = mediaStream;
             const video = document.getElementById('scannerVideo');
             video.srcObject = mediaStream;
             video.style.display = 'block';
-            video.play();
-            
-            document.getElementById('startScan').style.display = 'none';
-            document.getElementById('stopScan').style.display = 'inline-block';
-            
-            scanningInterval = setInterval(scanQRCode, 500);
-        }).catch(error => {
-            console.error('Camera error:', error);
-            showScanMessage('Camera error: ' + error.message, 'error');
-        });
-    } else {
-        showScanMessage('Camera not supported on this device', 'error');
-    }
+            video.onloadedmetadata = () => {
+                video.play();
+                document.getElementById('startScan').style.display = 'none';
+                document.getElementById('stopScan').style.display = 'inline-block';
+                scanningInterval = setInterval(scanQRCode, 500);
+            };
+        }).catch(error => showScanMessage('Camera error: ' + error.message, 'error'));
+    } else showScanMessage('Camera not supported', 'error');
 }
 
+
 function stopScanning() {
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-    }
-    
-    if (scanningInterval) {
-        clearInterval(scanningInterval);
-        scanningInterval = null;
-    }
-    
+    if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
+    if (scanningInterval) { clearInterval(scanningInterval); scanningInterval = null; }
     document.getElementById('scannerVideo').style.display = 'none';
     document.getElementById('startScan').style.display = 'inline-block';
     document.getElementById('stopScan').style.display = 'none';
 }
 
+let lastScan = "";
 function scanQRCode() {
     const video = document.getElementById('scannerVideo');
     const canvas = document.getElementById('scannerCanvas');
     const context = canvas.getContext('2d');
-
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
         canvas.height = video.videoHeight;
         canvas.width = video.videoWidth;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
         const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
         const code = jsQR(imageData.data, imageData.width, imageData.height);
-        
-        if (code) {
+        if (code && code.data !== lastScan) {
+            lastScan = code.data;
             try {
                 const qrData = JSON.parse(code.data);
-                if (qrData.studentId) {
-                    processAttendance(qrData);
-                }
-            } catch (error) {
-                showScanMessage('Invalid QR code format', 'error');
-            }
+                if (qrData.studentId) processAttendance(qrData);
+            } catch { showScanMessage('Invalid QR', 'error'); }
         }
     }
 }
 
-function processAttendance(qrData) {
+
+async function processAttendance(qrData) {
     const student = students.find(s => s.id === qrData.studentId);
-    if (!student) {
-        showScanMessage('Student not found in database', 'error');
-        return;
-    }
-
-    // Check if already marked present today
-    const today = new Date().toDateString();
-    const alreadyMarked = attendanceRecords.find(r => 
-        r.studentId === qrData.studentId && 
-        new Date(r.date).toDateString() === today
-    );
-
-    if (alreadyMarked) {
-        showScanMessage(`${student.name} already marked present today!`, 'error');
-        return;
-    }
-
+    if (!student) { showScanMessage('Student not found', 'error'); return; }
     const attendanceRecord = {
-        studentId: qrData.studentId,
-        studentName: student.name,
-        studentClass: student.class,
-        date: new Date().toISOString(),
-        status: 'present'
+        studentId: qrData.studentId, studentName: student.name, studentClass: student.class,
+        date: new Date().toISOString(), status: 'present'
     };
-
-    attendanceRecords.push(attendanceRecord);
-    saveData();
-    updateDashboard();
-    updateScannedAttendance();
-    
+    await fetch('http://localhost:5000/attendance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(attendanceRecord)
+    });
+    loadAttendance();
     showScanMessage(`✅ ${student.name} marked present!`, 'success');
 }
 
@@ -537,48 +493,26 @@ function showScanMessage(message, type) {
     const resultDiv = document.getElementById('scanResult');
     resultDiv.className = type === 'success' ? 'success-message' : 'error-message';
     resultDiv.textContent = message;
-    setTimeout(() => {
-        resultDiv.textContent = '';
-        resultDiv.className = '';
-    }, 3000);
+    setTimeout(() => { resultDiv.textContent = ''; resultDiv.className = ''; }, 3000);
 }
 
 function updateScannedAttendance() {
     const filterDate = document.getElementById('filterDate').value;
     const filterClass = document.getElementById('filterClass').value;
     const tbody = document.getElementById('scannedAttendanceBody');
-
-    let filtered = [...attendanceRecords];
-
-    if (filterDate) {
-        filtered = filtered.filter(r => 
-            new Date(r.date).toDateString() === new Date(filterDate).toDateString()
-        );
-    }
-
-    if (filterClass) {
-        filtered = filtered.filter(r => r.studentClass === filterClass);
-    }
-
-    // Sort by date (newest first)
+    let filtered = attendanceRecords;
+    if (filterDate) filtered = filtered.filter(r => new Date(r.date).toDateString() === new Date(filterDate).toDateString());
+    if (filterClass) filtered = filtered.filter(r => r.studentClass === filterClass);
     filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
-
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No attendance records found</td></tr>';
-        return;
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No records</td></tr>'; return;
     }
-
     tbody.innerHTML = '';
     filtered.forEach(record => {
         const date = new Date(record.date);
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${record.studentName}</td>
-            <td>${record.studentId}</td>
-            <td>${record.studentClass}</td>
-            <td>${date.toLocaleTimeString()}</td>
-            <td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>
-        `;
+        row.innerHTML = `<td>${record.studentName}</td><td>${record.studentId}</td><td>${record.studentClass}</td>
+                         <td>${date.toLocaleTimeString()}</td><td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>`;
         tbody.appendChild(row);
     });
 }
@@ -586,110 +520,75 @@ function updateScannedAttendance() {
 function updateDashboard() {
     const totalStudents = students.length;
     const today = new Date().toDateString();
-    const todayAttendance = attendanceRecords.filter(r => 
-        new Date(r.date).toDateString() === today
-    ).length;
+    const todayAttendance = attendanceRecords.filter(r => new Date(r.date).toDateString() === today).length;
     const attendanceRate = totalStudents > 0 ? Math.round((todayAttendance / totalStudents) * 100) : 0;
-
     document.getElementById('totalStudents').textContent = totalStudents;
     document.getElementById('todayAttendance').textContent = todayAttendance;
     document.getElementById('attendanceRate').textContent = attendanceRate + '%';
-
-    // Update recent attendance table
-    const recent = [...attendanceRecords]
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
-        .slice(0, 10);
-    
+    const recent = attendanceRecords.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10);
     const tbody = document.getElementById('recentAttendanceBody');
-    
     if (recent.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No attendance records yet</td></tr>';
-        return;
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No attendance records yet</td></tr>'; return;
     }
-
     tbody.innerHTML = '';
     recent.forEach(record => {
         const date = new Date(record.date);
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${record.studentName}</td>
-            <td>${record.studentId}</td>
-            <td>${record.studentClass}</td>
-            <td>${date.toLocaleTimeString()}</td>
-            <td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>
-        `;
+        row.innerHTML = `<td>${record.studentName}</td><td>${record.studentId}</td><td>${record.studentClass}</td>
+                         <td>${date.toLocaleString()}</td><td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>`;
         tbody.appendChild(row);
     });
 }
 
-/* MISSING: Populate unique class filters */
 function updateClassFilters() {
-    const classes = [...new Set(students.map(s => s.class))];
+    const classes = [...new Set(students.map(s => s.class))].sort();
     const filterClass = document.getElementById('filterClass');
     const reportClass = document.getElementById('reportClass');
-    
-    [filterClass, reportClass].forEach(select => {
-        select.innerHTML = '<option value="">All Classes</option>';
-        classes.forEach(cls => {
-            const option = document.createElement('option');
-            option.value = cls;
-            option.textContent = cls;
-            select.appendChild(option);
-        });
+    filterClass.innerHTML = '<option value="">All Classes</option>';
+    reportClass.innerHTML = '<option value="">All Classes</option>';
+    classes.forEach(cls => {
+        const opt1 = document.createElement('option'); opt1.value = cls; opt1.textContent = cls; filterClass.appendChild(opt1);
+        const opt2 = document.createElement('option'); opt2.value = cls; opt2.textContent = cls; reportClass.appendChild(opt2);
     });
 }
 
-/* MISSING: Generate attendance report between date ranges */
 function generateReport() {
-    const startDate = new Date(document.getElementById('reportStartDate').value);
-    const endDate = new Date(document.getElementById('reportEndDate').value);
-    const selectedClass = document.getElementById('reportClass').value;
-    const tbody = document.getElementById('reportTableBody');
-
-    let filtered = attendanceRecords.filter(record => {
-        const recordDate = new Date(record.date);
-        return recordDate >= startDate && recordDate <= endDate;
+    const startDate = document.getElementById('reportStartDate').value;
+    const endDate = document.getElementById('reportEndDate').value;
+    const reportClass = document.getElementById('reportClass').value;
+    if (!startDate || !endDate) { showMessage('Please select start and end dates', 'error'); return; }
+    let filtered = attendanceRecords.filter(r => {
+        const d = new Date(r.date); const s = new Date(startDate); const e = new Date(endDate); e.setHours(23, 59, 59, 999);
+        return d >= s && d <= e;
     });
-
-    if (selectedClass) {
-        filtered = filtered.filter(r => r.studentClass === selectedClass);
-    }
-
-    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    // Update report stats
-    const totalClasses = [...new Set(filtered.map(r => new Date(r.date).toDateString()))].length;
-    const totalStudents = students.length;
-    const avgAttendance = totalStudents > 0 && totalClasses > 0
-        ? Math.round((filtered.length / (totalStudents * totalClasses)) * 100)
-        : 0;
-
+    if (reportClass) filtered = filtered.filter(r => r.studentClass === reportClass);
+    const totalClasses = new Set(filtered.map(r => new Date(r.date).toDateString())).size;
+    const avgAttendance = students.length > 0 ? Math.round((filtered.length / (students.length * Math.max(totalClasses, 1))) * 100) : 0;
     document.getElementById('reportTotalClasses').textContent = totalClasses;
     document.getElementById('reportAvgAttendance').textContent = avgAttendance + '%';
-
+    const tbody = document.getElementById('reportTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">No records found for selected filters</td></tr>';
-        return;
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">No attendance records for selected period</td></tr>'; return;
     }
-
+    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
     tbody.innerHTML = '';
     filtered.forEach(record => {
         const date = new Date(record.date);
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${date.toLocaleDateString()}</td>
-            <td>${record.studentName}</td>
-            <td>${record.studentId}</td>
-            <td>${record.studentClass}</td>
-            <td>${date.toLocaleTimeString()}</td>
-            <td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>
-        `;
+        row.innerHTML = `<td>${date.toLocaleDateString()}</td><td>${record.studentName}</td><td>${record.studentId}</td>
+                         <td>${record.studentClass}</td><td>${date.toLocaleTimeString()}</td>
+                         <td><span class="status-${record.status}">${record.status.toUpperCase()}</span></td>`;
         tbody.appendChild(row);
     });
 }
 
-// Auto-run
-initializeApp();
+function showMessage(message, type) {
+    const messageDiv = document.getElementById('studentMessage');
+    messageDiv.className = type === 'success' ? 'success-message' : 'error-message';
+    messageDiv.textContent = message;
+    setTimeout(() => { messageDiv.textContent = ''; messageDiv.className = ''; }, 3000);
+}
 </script>
+
 </body>
 </html>

@@ -12,6 +12,10 @@ const port = 5000;
 
 app.use(cors());
 app.use(bodyParser.json());
+// Serve frontend (index.html, CSS, JS)
+app.use(express.static(__dirname + '/public'));
+
+
 
 // ✅ Firebase Admin SDK Setup
 const serviceAccount = require("./serviceAccountKey.json"); // Download from Firebase Console
@@ -26,11 +30,12 @@ const realtimeDb = admin.database();
 
 // ✅ MySQL Connection (Keep existing)
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "",
-  database: "school"
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASS || "",
+  database: process.env.DB_NAME || "school"
 });
+
 
 db.connect(err => {
   if (err) {
@@ -171,8 +176,9 @@ app.post("/attendance", async (req, res) => {
     return res.status(400).json({ message: "Missing required fields" });
 
   db.query(
-    "INSERT INTO attendance (student_id, date, status) VALUES (?, ?, ?)",
-    [studentId, date, status],
+  "INSERT INTO attendance (student_id, student_name, student_class, date, status) VALUES (?, ?, ?, ?, ?)",
+  [studentId, studentName, studentClass, date, status],
+
     async (err, result) => {
       if (err) return res.status(500).json({ message: "Insert error" });
       
