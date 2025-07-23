@@ -1,6 +1,5 @@
 // Step 1: Install Firebase Admin SDK
 // npm install firebase-admin
-require('dotenv').config();
 
 const express = require("express");
 const mysql = require("mysql2");
@@ -13,31 +12,25 @@ const port = 5000;
 
 app.use(cors());
 app.use(bodyParser.json());
-// Serve frontend (index.html, CSS, JS)
-app.use(express.static(__dirname + '/public'));
-
-
 
 // ✅ Firebase Admin SDK Setup
-const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+const serviceAccount = require("./serviceAccountKey.json"); // Download from Firebase Console
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.FIREBASE_DB_URL
+  databaseURL: "https://your-project-id-default-rtdb.firebaseio.com" // Replace with your URL
 });
-
 
 const firestore = admin.firestore();
 const realtimeDb = admin.database();
 
 // ✅ MySQL Connection (Keep existing)
 const db = mysql.createConnection({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASS || "",
-  database: process.env.DB_NAME || "school"
+  host: "localhost",
+  user: "root",
+  password: "",
+  database: "school"
 });
-
 
 db.connect(err => {
   if (err) {
@@ -178,9 +171,8 @@ app.post("/attendance", async (req, res) => {
     return res.status(400).json({ message: "Missing required fields" });
 
   db.query(
-  "INSERT INTO attendance (student_id, student_name, student_class, date, status) VALUES (?, ?, ?, ?, ?)",
-  [studentId, studentName, studentClass, date, status],
-
+    "INSERT INTO attendance (student_id, date, status) VALUES (?, ?, ?)",
+    [studentId, date, status],
     async (err, result) => {
       if (err) return res.status(500).json({ message: "Insert error" });
       
